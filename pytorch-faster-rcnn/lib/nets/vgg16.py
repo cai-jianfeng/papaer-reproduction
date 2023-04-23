@@ -31,7 +31,7 @@ class vgg16(Network):
         self._fc7_channels = 4096
 
     def _init_head_tail(self):
-        self.vgg = models.vgg16()
+        self.vgg = models.vgg16()  # 从 torchvision 导入内置的 vgg16 模型
         # Remove fc8
         self.vgg.classifier = nn.Sequential(
             *list(self.vgg.classifier._modules.values())[:-1])  # 将最后一个linear层删除
@@ -46,6 +46,8 @@ class vgg16(Network):
             *list(self.vgg.features._modules.values())[:-1])
 
     def _image_to_head(self):
+        # 返回 vgg 的 features 模块的倒数第二层输出
+        # net_conv.shape = (batch size = num images = 1, 512, W, H)
         net_conv = self._layers['head'](self._image)
         self._act_summaries['conv'] = net_conv
 
@@ -55,7 +57,7 @@ class vgg16(Network):
         pool5_flat = pool5.view(pool5.size(0), -1)
         fc7 = self.vgg.classifier(pool5_flat)
 
-        return fc7
+        return fc7  # shape = (num_roi, 4096)
 
     def load_pretrained_cnn(self, state_dict):
         self.vgg.load_state_dict({

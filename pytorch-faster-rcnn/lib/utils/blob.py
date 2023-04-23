@@ -18,8 +18,8 @@ def im_list_to_blob(ims):
     将ims中的每个图片(im)变成相同大小 -> 取所有图片中的最大宽度max_w和最大高度度max_h为统一的图片大小,
                                     所有不满足宽度=max_w的在宽度的维度补0直到满足;
                                     所有不满足高度=max_h的在高度的维度补0直到满足
-  Assumes images are already prepared (means subtracted, BGR order, ...).
-  """
+    Assumes images are already prepared (means subtracted, BGR order, ...).
+    """
     max_shape = np.array([im.shape for im in ims]).max(axis=0)   # axis = 0 表示列; 1 表示行
     num_images = len(ims)
     blob = np.zeros((num_images, max_shape[0], max_shape[1], 3),
@@ -28,7 +28,7 @@ def im_list_to_blob(ims):
         im = ims[i]
         blob[i, 0:im.shape[0], 0:im.shape[1], :] = im
 
-    return blob
+    return blob  # blob.shape = (num_images, max_w, max_h, 3)
 
 
 def prep_im_for_blob(im, pixel_means, target_size, max_size):

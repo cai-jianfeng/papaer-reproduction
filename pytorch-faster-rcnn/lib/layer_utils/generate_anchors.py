@@ -42,23 +42,24 @@ def generate_anchors(base_size=16,
                      ratios=[0.5, 1, 2],
                      scales=2**np.arange(3, 6)):
     """
-  Generate anchor (reference) windows by enumerating aspect ratios X
-  scales wrt a reference (0, 0, 15, 15) window.
-  """
-
-    base_anchor = np.array([1, 1, base_size, base_size]) - 1
-    ratio_anchors = _ratio_enum(base_anchor, ratios)
+    Generate anchor (reference) windows by enumerating aspect ratios X
+    scales wrt a reference (0, 0, 15, 15) window.
+    """
+    # anchor_scales=(8, 16, 32),
+    # anchor_ratios=(0.5, 1, 2)
+    base_anchor = np.array([1, 1, base_size, base_size]) - 1  # (0, 0, 15, 15)
+    ratio_anchors = _ratio_enum(base_anchor, ratios)  # shape = (num_anchors = 3, 4)
     anchors = np.vstack([
         _scale_enum(ratio_anchors[i, :], scales)
         for i in range(ratio_anchors.shape[0])
     ])
-    return anchors
+    return anchors  # shape = (num_anchors=9, 4)
 
 
 def _whctrs(anchor):
     """
-  Return width, height, x center, and y center for an anchor (window).
-  """
+    Return width, height, x center, and y center for an anchor (window).
+    """
 
     w = anchor[2] - anchor[0] + 1
     h = anchor[3] - anchor[1] + 1
@@ -77,34 +78,35 @@ def _mkanchors(ws, hs, x_ctr, y_ctr):
     hs = hs[:, np.newaxis]
     anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1),
                          x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
-    return anchors
+    return anchors  # shape = num_anchor, 4
 
 
 def _ratio_enum(anchor, ratios):
     """
     Enumerate a set of anchors for each aspect ratio wrt an anchor.
-    给定初始的anchor大小:(0, 0, 15, 15)和缩放比例ratio:(0.5, 1, 2） -> 返回缩放后的anchor(宽高的缩放比例相同，即所有缩放的anchor仍然为正方形框)
+    给定初始的anchor大小:(0, 0, 15, 15)和缩放比例ratio:(0.5, 1, 2） -> 返回缩放后的anchor(宽高的缩放比例不同, 使得缩放后端anchor的面积和原始的正方形框差不多: w = ((w x h) / scale)^0.5, w x scale)
     """
 
     w, h, x_ctr, y_ctr = _whctrs(anchor)
-    size = w * h
-    size_ratios = size / ratios
-    ws = np.round(np.sqrt(size_ratios))
-    hs = np.round(ws * ratios)
+    size = w * h  # 16 x 16
+    size_ratios = size / ratios  # (512, 256, 128)
+    ws = np.round(np.sqrt(size_ratios))  # 23, 16, 11  ->  np.round: 四舍五入
+    hs = np.round(ws * ratios)  # 12, 16, 22 -> ws 和 hs 一一对应, 一共是3个anchor
     anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
-    return anchors
+    return anchors  # shape = (num_anchors = 3, 4)
 
 
 def _scale_enum(anchor, scales):
     """
-  Enumerate a set of anchors for each scale wrt an anchor.
-  """
-
+    Enumerate a set of anchors for each scale wrt an anchor.
+    """
+    # anchor.shape = (4, )
+    # scales = (8, 16, 32)
     w, h, x_ctr, y_ctr = _whctrs(anchor)
     ws = w * scales
     hs = h * scales
     anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
-    return anchors
+    return anchors  # shape = (num_anchors = 3, 4)
 
 
 if __name__ == '__main__':

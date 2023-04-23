@@ -49,9 +49,9 @@ def bbox_transform_inv(boxes, deltas):
     ctr_x = boxes[:, 0] + 0.5 * widths
     ctr_y = boxes[:, 1] + 0.5 * heights
 
-    dx = deltas[:, 0::4]  # shape = (num, 1)
+    dx = deltas[:, 0::4]  # shape = (num, 1) -> ctr_x的偏移量(相对于 width 进行了归一化 (0-1))
     dy = deltas[:, 1::4]
-    dw = deltas[:, 2::4]
+    dw = deltas[:, 2::4]  # width的缩放比例(log归一化后的)
     dh = deltas[:, 3::4]
 
     pred_ctr_x = dx * widths.unsqueeze(1) + ctr_x.unsqueeze(1)  # shape = (num, 1)
@@ -70,7 +70,7 @@ def bbox_transform_inv(boxes, deltas):
 
 def clip_boxes(boxes, im_shape):
     """
-    boxes.shape = (num_boxes, 4); img_shape = (w, h)
+    boxes.shape = (num_boxes, 4); img_shape = (h, w)
     Clip boxes to image boundaries.
     boxes must be tensor or Variable, im_shape can be anything but Variable
     """

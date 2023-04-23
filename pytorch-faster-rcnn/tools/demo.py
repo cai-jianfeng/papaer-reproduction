@@ -40,17 +40,23 @@ NETS = {
     'vgg16': ('vgg16_faster_rcnn_iter_%d.pth', ),
     'res101': ('res101_faster_rcnn_iter_%d.pth', )
 }
+
 DATASETS = {
     'pascal_voc': ('voc_2007_trainval', ),
     'pascal_voc_0712': ('voc_2007_trainval+voc_2012_trainval', )
 }
 
-
+'''
+    对于opencv和detectron2的faster-rcnn检测: 左上角为原点, 即位置为(0, 0). 
+        cv2.rectangle 的参数为: 左上角坐标, 右下角坐标 
+    对于matplotlib: 也是左上角为原点, 
+        matplotlin.pyplot.Rectangle 的参数为 左上角坐标, width, height
+'''
 def vis_detections(im, class_name, dets, thresh=0.5):
     """Draw detected bounding boxes."""
-    # dets shape: [num_box, 5] (5->x1,y1,x2,y2,score)
-    # np.where: 没有指定返回结果, 只有查找条件 -> 返回满足条件的位置(2个元组); 第一个元组是行, 第二个元组是列
-    inds = np.where(dets[:, -1] >= thresh)[0]
+    # dets shape: [num_box, 5] (5 -> x1,y1,x2,y2,score)
+    # np.where: 没有指定返回结果, 只有查找条件的情况下 -> 返回满足条件的位置(2个元组); 第一个元组是行, 第二个元组是列
+    inds = np.where(dets[:, -1] >= thresh)[0]  # 这里我们是需要满足score大于阈值(thresh)的所有框的index, 所以需要行
     if len(inds) == 0:  # 所有的预测框的分数都没超过阈值
         return
 
@@ -58,7 +64,7 @@ def vis_detections(im, class_name, dets, thresh=0.5):
     # plt.subplots: 创建子图(一次性全部创建)
     # fig: 图窗; ax: 子图的坐标区
     fig, ax = plt.subplots(figsize=(12, 12))
-    ax.imshow(im, aspect='equal')  # aspect: 表示横纵坐标的比例 —> equal表示正方形
+    ax.imshow(im, aspect='equal')  # aspect: 表示横纵坐标的比例 —> equal表示正方形, 还可设置为 auto
     for i in inds:
         bbox = dets[i, :4]
         score = dets[i, -1]
@@ -109,11 +115,13 @@ def demo(net, image_name):
         cls_ind += 1  # because we skipped background
         cls_boxes = boxes[:, 4 * cls_ind:4 * (cls_ind + 1)]  # (num_boxes, 4)
         cls_scores = scores[:, cls_ind]  # (num_boxes, )
+        # np.newaxis: 相当于 torch 的 unsqueeze, 在增加指定维度
+        # np.hstack: 将两个 ndarray 沿着 列 进行拼接
         dets = np.hstack((cls_boxes,
                           cls_scores[:, np.newaxis])).astype(np.float32)  # (num_boxes, 5)
         keep = nms(
             torch.from_numpy(cls_boxes), torch.from_numpy(cls_scores),
-            NMS_THRESH)  # nms: 不分类别, 对于IOU超过阈值的只保留分数高的那个(不同于仅在同一类之间进行nms -> batched_nms)
+            NMS_THRESH)  # nms: 不分类别, 对于IOU超过阈值的只保留分数高的那个(不同于仅在同一类之间进行nms -> batched_nms): 参数 boxes(shape: num_boxes, 4), scores(shape: num_boxes, ), nms阈值
         # nms 返回保留下来的序号(从0开始) -> tensor
         dets = dets[keep.numpy(), :]
         vis_detections(im, cls, dets, thresh=CONF_THRESH)
@@ -147,6 +155,7 @@ if __name__ == '__main__':
     # model path
     demonet = args.demo_net
     dataset = args.dataset
+    # os.path.join: 可以拼接任意的字符串为路径(每个字符串之间用 \\ 连接)
     saved_model = os.path.join(
         'output', demonet, DATASETS[dataset][0], 'default',
         NETS[demonet][0] % (70000 if dataset == 'pascal_voc' else 110000))
@@ -163,6 +172,7 @@ if __name__ == '__main__':
         net = resnetv1(num_layers=101)
     else:
         raise NotImplementedError
+    # 创建模型, 包括导入 torchvision 内置的 vgg16 作为主干网络和 自定义的 rpn(包括 rpn 主干网络, rpn 的分类头和box偏移预测量) 与 最终的分类头和box偏移预测量
     net.create_architecture(21, tag='default', anchor_scales=[8, 16, 32])
 
     net.load_state_dict(

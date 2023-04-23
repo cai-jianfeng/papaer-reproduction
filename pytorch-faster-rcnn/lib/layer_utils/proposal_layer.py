@@ -19,11 +19,11 @@ def proposal_layer(rpn_cls_prob, rpn_bbox_pred, im_info, cfg_key, _feat_stride,
                    anchors, num_anchors):
     """A simplified version compared to fast/er RCNN
      For details please see the technical report
-     rpn_cls_prob.shape: batch * h * w * (num_anchors * 2)
-     rpn_bbox_pred.shape: batch * h * w * (num_anchors*4)
-     im_info: (w, h, num_imgs)
+     rpn_cls_prob.shape: batch * h * w * (num_anchors = 9*2)
+     rpn_bbox_pred.shape: batch * h * w * (num_anchors = 9*4)
+     im_info: (h, w, num_imgs)
      cfg_key: mode -> train/test
-     anchors.shape: (num_anchors, 4)
+     anchors.shape: (num_anchors = (HxWx9), 4)
   """
     if type(cfg_key) == bytes:
         cfg_key = cfg_key.decode('utf-8')
@@ -32,14 +32,14 @@ def proposal_layer(rpn_cls_prob, rpn_bbox_pred, im_info, cfg_key, _feat_stride,
     nms_thresh = cfg[cfg_key].RPN_NMS_THRESH
 
     # Get the scores and bounding boxes
-    scores = rpn_cls_prob[:, :, :, num_anchors:]  # 取每个anchor为前景的概率分数
-    rpn_bbox_pred = rpn_bbox_pred.view((-1, 4))  # (batch * h * w * num_anchors) * 4
-    scores = scores.contiguous().view(-1, 1)  # (batch * h * w * num_anchors * 2) * 1
-    proposals = bbox_transform_inv(anchors, rpn_bbox_pred)  # ((batch * h * w * num_anchors) * 4)  --> (batch * h * w * num_anchors) == (num_anchors) ???
-    proposals = clip_boxes(proposals, im_info[:2])  # ((batch * h * w * num_anchors) * 4)
+    scores = rpn_cls_prob[:, :, :, num_anchors:]  # 取每个anchor为前景的概率分数 ??? 为什么前景是在后面的num_anchors个
+    rpn_bbox_pred = rpn_bbox_pred.view((-1, 4))  # (batch * h * w * num_anchors=9) * 4
+    scores = scores.contiguous().view(-1, 1)  # (batch * h * w * num_anchors=9) * 1
+    proposals = bbox_transform_inv(anchors, rpn_bbox_pred)  # ((batch * h * w * num_anchors) * 4)  --> (batch * h * w * num_anchors) == (num_anchors = (HxWx9))
+    proposals = clip_boxes(proposals, im_info[:2])  # ((batch * h * w * num_anchors) * 4) -> 将 proposal 的 box 的范围限制在图片的范围内
 
     # Pick the top region proposals
-    scores, order = scores.view(-1).sort(descending=True)  # sort 返回 value 和 indices
+    scores, order = scores.view(-1).sort(descending=True)  # sort 返回 value 和 indices  shape = (batch * h * w * num_anchors=9, )
     if pre_nms_topN > 0:
         order = order[:pre_nms_topN]
         scores = scores[:pre_nms_topN].view(-1, 1)
@@ -55,7 +55,7 @@ def proposal_layer(rpn_cls_prob, rpn_bbox_pred, im_info, cfg_key, _feat_stride,
     scores = scores[keep, ]  # scores[keep, ] = scores[keep, :]
 
     # Only support single image as input
-    batch_inds = proposals.new_zeros(proposals.size(0), 1)  # batch_inds.shape = pre_nms_topN/post_nms_topN * 1
+    batch_inds = proposals.new_zeros(proposals.size(0), 1)  # batch_inds.shape = pre_nms_topN/post_nms_topN * 1  ->  zero表示这些proposal全是前景, 预测类别为0
     blob = torch.cat((batch_inds, proposals), 1)  # pre_nms_topN/post_nms_topN * 5
 
     return blob, scores

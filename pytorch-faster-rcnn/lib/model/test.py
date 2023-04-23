@@ -28,21 +28,23 @@ import torch
 
 def _get_image_blob(im):
     """Converts an image into a network input.
-  Arguments:
+    Arguments:
     im (ndarray): a color image in BGR order
-  Returns:
+    Returns:
     blob (ndarray): a data blob holding an image pyramid
     im_scale_factors (list): list of image scales (relative to im) used in the image pyramid
-  """
+    """
     im_orig = im.astype(np.float32, copy=True)
-    im_orig -= cfg.PIXEL_MEANS  # cfg.PIXEL_MEANS = np.array([[[102.9801, 115.9465, 122.7717]]]) shape = (3, 1)
+    # 对每个像素都减去指定的均值
+    im_orig -= cfg.PIXEL_MEANS  # cfg.PIXEL_MEANS = np.array([[[102.9801, 115.9465, 122.7717]]]) shape = (1, 1, 3)
 
     im_shape = im_orig.shape  # (w, h, 3)
+    # im_size_min/im_size_max: im 的 w, h 中的最小值/最大值
     im_size_min = np.min(im_shape[0:2])  # min(w, h)
     im_size_max = np.max(im_shape[0:2])  # max(w, h)
 
-    processed_ims = []
-    im_scale_factors = []
+    processed_ims = []  # 表示对 im 进行的 scale 后的 im
+    im_scale_factors = []  # 表示对 im 进行的 scale 比例
 
     for target_size in cfg.TEST.SCALES:  # (600,)
         im_scale = float(target_size) / float(im_size_min)
@@ -63,12 +65,13 @@ def _get_image_blob(im):
     # 将processed_ims中的im变成统一大小(不满足条件的末尾补0)
     blob = im_list_to_blob(processed_ims)  # shape: (num_imgs, max_w, max_h, 3)
 
-    return blob, np.array(im_scale_factors)
+    return blob, np.array(im_scale_factors)  # shape: (num_imgs)
 
 
 def _get_blobs(im):
     """Convert an image and RoIs within that image into network inputs."""
     blobs = {}
+    # shape: (num_imgs, max_w, max_h, 3); shape: (num_imgs)
     blobs['data'], im_scale_factors = _get_image_blob(im)  # 将 im 先 resize 成指定的不同大小(根据 cfg.TEST.SCALES 和 cfg.TEST.MAX_SIZE), 然后统一大小(所有图片的最大宽和最大高)
 
     return blobs, im_scale_factors
@@ -97,15 +100,16 @@ def _rescale_boxes(boxes, inds, scales):
 
 def im_detect(net, im):
     # im.shape: (w, h, 3)
+    # blobs['data'].shape: (num_imgs, max_w, max_h, 3); im_scales.shape: (num_imgs)
     blobs, im_scales = _get_blobs(im)
     assert len(im_scales) == 1, "Only single-image batch implemented"
 
     im_blob = blobs['data']  # (num_imgs -> 同一张图片不同缩放大小的结果, w, h, 3)
-    blobs['im_info'] = np.array(
+    blobs['im_info'] = np.array(  # im_info = (max_w, max_h, num_imgs)
         [im_blob.shape[1], im_blob.shape[2], im_scales[0]], dtype=np.float32)
     # scores.shape = (num_rois, num_class)
     # bbox_pred.shape = (num_rois, num_class * 4)
-    # rois.shape = pre_nms_topN/post_nms_topN * 5
+    # rois.shape = pre_nms_topN/post_nms_topN * 5 -> 第一列是类别(全是前景类, 即全为0)
     _, scores, bbox_pred, rois = net.test_image(blobs['data'],
                                                 blobs['im_info'])
 

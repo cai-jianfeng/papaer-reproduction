@@ -88,7 +88,8 @@ class Network(nn.Module):
         return rois, rpn_scores
 
     def _proposal_layer(self, rpn_cls_prob, rpn_bbox_pred):
-        # rpn_cls_prob.shape = batch * h * w * (num_anchors * 2); rpn_bbox_pred.shape = batch * h * w * (num_anchors*4)
+        # rpn_cls_prob.shape = batch = 1 * h * w * (num_anchors = 9 * 2); rpn_bbox_pred.shape = batch = 1 * h * w * (num_anchors = 9*4)
+        # _anchors.shape = (_num_anchors = (WxHx9), 4); _num_anchors = (WxHx9)
         rois, rpn_scores = proposal_layer(
             rpn_cls_prob, rpn_bbox_pred, self._im_info, self._mode,
             self._feat_stride, self._anchors, self._num_anchors)
@@ -100,11 +101,11 @@ class Network(nn.Module):
                        1.0 / 16.0)(bottom, rois)
 
     def _roi_align_layer(self, bottom, rois):
-        # bottom: 输入的特征图; rois: 输入的所有roi
+        # bottom: 输入的特征图 shape = (batch=1, 512, h, w); rois: 输入的所有roi rois.shape = pre_nms_topN/post_nms_topN * 5
         # ROIAlign() 返回一个对象
         # ROIAlign的参数
-        # output_size;
-        # spatial_scale: 设roi的坐标是在WxH的图上完成的, bottom的wxh的特征图, 则需要将roi缩放到wxh上, 所以缩放因子为spatial_scale = W/w, H/h;
+        # output_size: 7x7;
+        # spatial_scale: 设roi的坐标是在WxH的图上完成的, bottom是wxh的特征图, 则需要将roi缩放到wxh上, 所以缩放因子为spatial_scale = W/w, H/h;
         # sampling_ratio: 当小等于 0 时, 表示自动选择采样点 -> ceil(roi_width / output_width)
         return RoIAlign((cfg.POOLING_SIZE, cfg.POOLING_SIZE), 1.0 / 16.0,
                         0)(bottom, rois)  # bottom: 特征图; rois: 所有的roi框
@@ -161,6 +162,7 @@ class Network(nn.Module):
         # just to get the shape right
         # height = int(math.ceil(self._im_info.data[0, 0] / self._feat_stride[0]))
         # width = int(math.ceil(self._im_info.data[0, 1] / self._feat_stride[0]))
+        # num_anchors是特征图上所有像素点的所有anchors
         anchors, anchor_length = generate_anchors_pre(  # anchors.shape = (num_anchors, 4); anchors_length = num_anchors
             height, width,
             self._feat_stride, self._anchor_scales, self._anchor_ratios)
@@ -241,11 +243,13 @@ class Network(nn.Module):
         return loss
 
     def _region_proposal(self, net_conv):
+        # net_conv.shape = (batch size = num images = 1, 512, H, W)
         rpn = F.relu(self.rpn_net(net_conv))
+        # rpn.shape = (batch size = num images = 1, 512, H, W)
         self._act_summaries['rpn'] = rpn
 
         rpn_cls_score = self.rpn_cls_score_net(
-            rpn)  # batch * (num_anchors * 2) * h * w
+            rpn)  # batch = 1 * (num_anchors = 9 * 2) * h * w
 
         # change it so that the score has 2 as its channel size
         rpn_cls_score_reshape = rpn_cls_score.view(
@@ -260,11 +264,11 @@ class Network(nn.Module):
             0, 2, 3, 1)  # batch * h * w * (num_anchors * 2)
         rpn_cls_score_reshape = rpn_cls_score_reshape.permute(
             0, 2, 3, 1).contiguous()  # batch * (num_anchors*h) * w * 2
-        rpn_cls_pred = torch.max(rpn_cls_score_reshape.view(-1, 2), 1)[1]
+        rpn_cls_pred = torch.max(rpn_cls_score_reshape.view(-1, 2), 1)[1]  # (batch * num_anchors = 9 * h * w, )
 
         rpn_bbox_pred = self.rpn_bbox_pred_net(rpn)
         rpn_bbox_pred = rpn_bbox_pred.permute(
-            0, 2, 3, 1).contiguous()  # batch * h * w * (num_anchors*4)
+            0, 2, 3, 1).contiguous()  # batch * h * w * (num_anchors = 9*4)
 
         if self._mode == 'TRAIN':
             rois, roi_scores = self._proposal_layer(  # pre_nms_topN/post_nms_topN * 5; pre_nms_topN/post_nms_topN * 1
@@ -291,8 +295,9 @@ class Network(nn.Module):
         return rois  # rois.shape = pre_nms_topN/post_nms_topN * 5
 
     def _region_classification(self, fc7):
+        # fc7.shape = (num_roi, 4096)
         cls_score = self.cls_score_net(fc7)  # cls_score.shape = (num_rois, num_class)
-        cls_pred = torch.max(cls_score, 1)[1]
+        cls_pred = torch.max(cls_score, 1)[1]  # cls_pred.shape = (num_rois, )
         cls_prob = F.softmax(cls_score, dim=1)  # cls_prob.shape = (num_rois, num_class)
         bbox_pred = self.bbox_pred_net(fc7)  # bbox_pred.shape = (num_rois, num_class * 4)
 
@@ -301,7 +306,7 @@ class Network(nn.Module):
         self._predictions["cls_prob"] = cls_prob
         self._predictions["bbox_pred"] = bbox_pred
 
-        return cls_prob, bbox_pred
+        return cls_prob, bbox_pred  # cls_prob.shape = (num_rois, num_class); bbox_pred.shape = (num_rois, num_class * 4)
 
     def _image_to_head(self):
         raise NotImplementedError
@@ -323,7 +328,7 @@ class Network(nn.Module):
         self._anchor_ratios = anchor_ratios
         self._num_ratios = len(anchor_ratios)
 
-        self._num_anchors = self._num_scales * self._num_ratios
+        self._num_anchors = self._num_scales * self._num_ratios  # 默认是 9 = 3 x 3
 
         assert tag != None
 
@@ -331,23 +336,25 @@ class Network(nn.Module):
         self._init_modules()
 
     def _init_modules(self):
-        self._init_head_tail()
+        self._init_head_tail()  # 在 vgg16 / resnet_v1 的代码中有定义, vgg16: 定义了主干网络, 从 torchvision.models 导入 vgg16(包括 features 模块和 classifier)并去除 features 的最后一层 maxpool 和 classifier 的最后一层 linear
 
         # rpn
         self.rpn_net = nn.Conv2d(
+            # self._net_conv_channels 在 vgg16 / resnet_v1 的代码中有定义 -> vgg16 默认是 512
+            # cfg.RPN_CHANNELS 默认是 512
             self._net_conv_channels, cfg.RPN_CHANNELS, [3, 3], padding=1)
-
+        # 最终的输出 channel 为 num_anchors * 2, 表示将每个 anchor 分成前景和背景的分数(不是概率, 还没过 softmax)
         self.rpn_cls_score_net = nn.Conv2d(cfg.RPN_CHANNELS,
                                            self._num_anchors * 2, [1, 1])
-
+        # 最终的输出 channel 为 num_anchors * 4, 表示将每个 anchor 相对原始 box 的x1, y1, x2, y2偏移量
         self.rpn_bbox_pred_net = nn.Conv2d(cfg.RPN_CHANNELS,
                                            self._num_anchors * 4, [1, 1])
-
+        # self._fc7_channels 在 vgg16 / resnet_v1 的代码中有定义 -> vgg16 默认是 4096
         self.cls_score_net = nn.Linear(self._fc7_channels, self._num_classes)
         self.bbox_pred_net = nn.Linear(self._fc7_channels,
                                        self._num_classes * 4)
 
-        self.init_weights()
+        self.init_weights()  # 对于上述定义的 5 个模块, 使用 normal 初始化
 
     def _run_summary_op(self, val=False):
         """
@@ -382,20 +389,22 @@ class Network(nn.Module):
         # This is just _build_network in tf-faster-rcnn
         # 设置 torch.backends.cudnn.benchmark=True 将会让程序在开始时花费一点额外时间, 为整个网络的每个卷积层搜索最适合它的卷积实现算法, 进而实现网络的加速
         torch.backends.cudnn.benchmark = False
+        # net_conv.shape = (batch size = num images = 1, 512, H, W)
         net_conv = self._image_to_head()
 
         # build the anchors for the image
+        # 特征图上所有像素点的所有anchors
         self._anchor_component(net_conv.size(2), net_conv.size(3))
 
         rois = self._region_proposal(net_conv)  # rois.shape = pre_nms_topN/post_nms_topN * 5
         if cfg.POOLING_MODE == 'align':
-            pool5 = self._roi_align_layer(net_conv, rois)  # pool5.shape = (num_roi, channel, output_size, output_size)
+            pool5 = self._roi_align_layer(net_conv, rois)  # pool5.shape = (num_roi = post_nms_topN, channel = 512, output_size, output_size)
         else:
             pool5 = self._roi_pool_layer(net_conv, rois)
 
         if self._mode == 'TRAIN':
             torch.backends.cudnn.benchmark = True  # benchmark because now the input size are fixed
-        fc7 = self._head_to_tail(pool5)
+        fc7 = self._head_to_tail(pool5)  # shape = (num_roi, 4096)
 
         cls_prob, bbox_pred = self._region_classification(fc7)   # cls_prob.shape = (num_rois, num_class); bbox_pred.shape = (num_rois, num_class * 4)
 
@@ -405,22 +414,22 @@ class Network(nn.Module):
         return rois, cls_prob, bbox_pred
 
     def forward(self, image, im_info, gt_boxes=None, mode='TRAIN'):
-        # image.shape: (num_imgs, w, h, 3)
-        # im_info = (w, h, num_imgs)
+        # image.shape: (num_imgs, h, w, 3)
+        # im_info = (h, w, num_imgs)
         self._image_gt_summaries['image'] = image
         self._image_gt_summaries['gt_boxes'] = gt_boxes
         self._image_gt_summaries['im_info'] = im_info
 
         self._image = torch.from_numpy(image.transpose([0, 3, 1,
                                                         2])).to(
-            self._device)  # self._image.shape = (num_imgs, channel(3), w, h)
-        self._im_info = im_info  # No need to change; actually it can be a list -> = (w, h, num_imgs)
+            self._device)  # self._image.shape = (num_imgs, channel(3), h, w)
+        self._im_info = im_info  # No need to change; actually it can be a list -> = (h, w, num_imgs)
         self._gt_boxes = torch.from_numpy(gt_boxes).to(
             self._device) if gt_boxes is not None else None
 
         self._mode = mode
 
-        rois, cls_prob, bbox_pred = self._predict()  # bbox_pred.shape = (num_rois, num_class * 4)
+        rois, cls_prob, bbox_pred = self._predict()  # rois.shape = pre_nms_topN/post_nms_topN * 5; cls_prob.shape = (num_rois, num_class); bbox_pred.shape = (num_rois, num_class * 4)
 
         if mode == 'TEST':
             # tensor.data.new: 生成和原tensor保持一致的type的device的新的tensor
@@ -430,7 +439,7 @@ class Network(nn.Module):
             # (12, 10) -> (14, 12, 10) / (1, 10) -> (14, 12, 10) / (12, 1) -> (14, 12, 10) / (1, 1) -> (14, 12, 10)
             # (14, 12, 1) -> (14, 12, 10) / (14, 1, 1) -> (14, 12, 10) / (1, 1, 1) -> (14, 12, 10) 但是不能 (14, 12) -> (14, 12, 10)
             stds = bbox_pred.data.new(cfg.TRAIN.BBOX_NORMALIZE_STDS).repeat(
-                self._num_classes).unsqueeze(0).expand_as(bbox_pred)
+                self._num_classes).unsqueeze(0).expand_as(bbox_pred)  # (num_rois, num_class * 4) -> 是一个 1*4 的向量复制了 num_rois x num_class 次
             means = bbox_pred.data.new(cfg.TRAIN.BBOX_NORMALIZE_MEANS).repeat(
                 self._num_classes).unsqueeze(0).expand_as(bbox_pred)
             self._predictions["bbox_pred"] = bbox_pred.mul(stds).add(means)
