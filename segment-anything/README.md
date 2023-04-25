@@ -1,4 +1,4 @@
-# Segment Anything
+# Segment Anything from Meta
 
 **[Meta AI Research, FAIR](https://ai.facebook.com/research/)**
 
